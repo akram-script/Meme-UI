@@ -17,9 +17,6 @@ export class Gallery implements OnInit {
   isLoading = true;
   error: string | null = null;
   selectedMeme: any = null;
-  private hasLoadedOnce = false;
-  private cacheLastUpdate = 0;
-  private cacheDuration = 24 * 60 * 60 * 1000; // 24 hours
 
   constructor(
     private memeService: MemeService, 
@@ -31,36 +28,31 @@ export class Gallery implements OnInit {
       filter(e => e instanceof NavigationEnd)
     ).subscribe((event: any) => {
       if (event.urlAfterRedirects.includes('gallery')) {
-        this.checkCacheAndLoad();
+        this.loadCachedOrFetch();
       }
     });
   }
 
   ngOnInit() { 
-    this.checkCacheAndLoad();
+    this.loadCachedOrFetch();
   }
 
-  private checkCacheAndLoad() {
-    // Check if cache was invalidated (e.g., meme was added or deleted)
+  private loadCachedOrFetch() {
     if (this.cacheService.isGalleryCacheDirty()) {
       console.log('Cache is dirty, reloading...');
       this.cacheService.clearDirtyFlag();
-      this.load();
-      return;
+      this.cacheService.clearGalleryCache();
     }
 
-    // Check if cache is still valid
-    const now = Date.now();
-    if (this.hasLoadedOnce && (now - this.cacheLastUpdate < this.cacheDuration) && this.memes.length > 0) {
-      console.log('Using cached memes');
+    const cachedMemes = this.cacheService.getGalleryCache();
+    if (cachedMemes && cachedMemes.length > 0) {
+      console.log('Using cached gallery memes');
+      this.memes = cachedMemes;
       this.isLoading = false;
       return;
     }
 
-    // First time load
-    if (!this.hasLoadedOnce) {
-      this.load();
-    }
+    this.load();
   }
 
   load() {
@@ -72,15 +64,14 @@ export class Gallery implements OnInit {
       next: (data: any[]) => {
         console.log('Gallery loaded:', data);
         this.memes = data;
+        this.cacheService.setGalleryCache(data);
         this.isLoading = false;
-        this.hasLoadedOnce = true;
-        this.cacheLastUpdate = Date.now();
         this.cdr.detectChanges();
       },
       error: (err) => { 
         console.error('Gallery load error:', err);
         this.isLoading = false;
-        this.error = 'Failed to load gallery. Is the backend running at http://localhost:5070?';
+        this.error = 'Failed to load gallery';
         this.cdr.detectChanges();
       }
     });
@@ -88,8 +79,7 @@ export class Gallery implements OnInit {
 
   forceRefresh() {
     console.log('Force refreshing gallery...');
-    this.hasLoadedOnce = false;
-    this.cacheLastUpdate = 0;
+    this.cacheService.clearGalleryCache();
     this.load();
   }
 
@@ -103,11 +93,36 @@ export class Gallery implements OnInit {
     this.cdr.detectChanges();
   }
 
+  share(meme: any) {
+    const isRemoteUrl = meme.imageUrl && !meme.imageUrl.startsWith('data:');
+    const text = `Regarde ce mème que j'ai créé !`;
+    const shareData: any = {
+      title: 'Meme Generator',
+      text
+    };
+
+    if (isRemoteUrl) {
+      shareData.url = meme.imageUrl;
+    }
+
+    if (navigator.share) {
+      navigator.share(shareData).catch(() => {
+        const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}${isRemoteUrl ? `&url=${encodeURIComponent(meme.imageUrl)}` : ''}`;
+        window.open(twitterUrl, '_blank', 'noopener');
+      });
+      return;
+    }
+
+    const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}${isRemoteUrl ? `&url=${encodeURIComponent(meme.imageUrl)}` : ''}`;
+    window.open(twitterUrl, '_blank', 'noopener');
+  }
+
   delete(id: number) {
     this.deletingId = id;
     this.memeService.delete(id).subscribe({
       next: () => {
         this.memes = this.memes.filter(m => m.id !== id);
+        this.cacheService.setGalleryCache(this.memes);
         this.deletingId = null;
         if (this.selectedMeme?.id === id) {
           this.selectedMeme = null;

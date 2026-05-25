@@ -18,6 +18,8 @@ export class Editor {
   loading = false;
   showNotification = false;
   notificationMessage = '';
+  private readonly IMGBB_API_KEY = 'e30099d6cb1c4341c5917714ba08c495'; 
+  private readonly IMGBB_UPLOAD_URL = 'https://api.imgbb.com/1/upload';
 
   constructor(
     private memeService: MemeService,
@@ -61,10 +63,41 @@ export class Editor {
     link.click();
   }
 
-  save() {
+  async save() {
+    if (!this.image.src) {
+      this.notificationMessage = 'Please choose an image before saving.';
+      this.showNotification = true;
+      this.cdr.detectChanges();
+      setTimeout(() => {
+        this.showNotification = false;
+        this.cdr.detectChanges();
+      }, 3000);
+      return;
+    }
+
     this.loading = true;
+    const canvasUrl = this.canvas.nativeElement.toDataURL('image/png');
+    let imageUrl = canvasUrl;
+
+    if (this.IMGBB_API_KEY) {
+      try {
+        imageUrl = await this.uploadToImgBB(canvasUrl);
+      } catch (uploadError) {
+        console.error('ImgBB upload error:', uploadError);
+        this.loading = false;
+        this.notificationMessage = 'Image upload failed. Check your Imgbb API key and network.';
+        this.showNotification = true;
+        this.cdr.detectChanges();
+        setTimeout(() => {
+          this.showNotification = false;
+          this.cdr.detectChanges();
+        }, 5000);
+        return;
+      }
+    }
+
     const data = {
-      imageUrl: this.canvas.nativeElement.toDataURL(),
+      imageUrl,
       topText: this.topText,
       bottomText: this.bottomText
     };
@@ -79,24 +112,22 @@ export class Editor {
         const ctx = canvas.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Invalidate gallery cache since a new meme was added
         this.cacheService.invalidateGalleryCache();
         
-        // Show success notification
-        this.notificationMessage = 'Image saved successfully!';
+        this.notificationMessage = this.IMGBB_API_KEY
+          ? 'Image uploaded and saved successfully!'
+          : 'Image saved locally as data URL.';
         this.showNotification = true;
         this.cdr.detectChanges();
-        console.log('Notification shown:', this.showNotification);
         setTimeout(() => {
           this.showNotification = false;
           this.cdr.detectChanges();
-          console.log('Notification hidden');
         }, 3000);
       },
       error: (err) => { 
         console.error('Save error:', err);
         this.loading = false;
-        // Show error notification
+        
         this.notificationMessage = 'Error saving image. Check if backend is running.';
         this.showNotification = true;
         this.cdr.detectChanges();
@@ -106,5 +137,24 @@ export class Editor {
         }, 5000);
       }
     });
+  }
+
+  private async uploadToImgBB(dataUrl: string): Promise<string> {
+    const base64 = dataUrl.split(',')[1];
+    const formData = new FormData();
+    formData.append('key', this.IMGBB_API_KEY);
+    formData.append('image', base64);
+
+    const response = await fetch(this.IMGBB_UPLOAD_URL, {
+      method: 'POST',
+      body: formData
+    });
+
+    const body = await response.json();
+    if (!response.ok || !body.data || !body.data.url) {
+      throw new Error(body?.error?.message || 'ImgBB upload failed');
+    }
+
+    return body.data.url;
   }
 }
