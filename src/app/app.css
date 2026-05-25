@@ -1,0 +1,9 @@
+.active-link {
+  background: #3b82f6 !important;
+  color: #fff !important;
+}
+
+a:hover {
+  background: #334155;
+  color: #f1f5f9 !important;
+}
