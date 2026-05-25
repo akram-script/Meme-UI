@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 
 @Injectable({ providedIn: 'root' })
 export class MemeService {
-  private api = 'http://localhost:5070/api/Meme';
+  private api = 'https://meme-api-4m0f.onrender.com/api/Meme';
 
   constructor(private http: HttpClient) {}
 
